@@ -34,11 +34,13 @@ The program will:
 
 
 ### todo:
-Everything is subject to discussion and enhancements! Share your knolwedges.
-Test on windows 10
-Ensure the proxy will not cause problms: correct stop at shutdown, multi users
-Displaylig log crash the program
-Enhanced a lot the script, make it perfectly stable and robust.
-Correct encoding (some messages are displayer weirdly)
-Configure a self-updating method
-Allow to setup a system wide, "discrete" mode where the program runs  in background showing no icons at all
+Everything is subject to discussion and enhancements! Share your knolwedges.  
+- Test on windows 10
+- Ensure the proxy will not cause problms: correct stop at shutdown, multi users
+- Displaylig log crash the program
+- Enhanced a lot the script, make it perfectly stable and robust.
+- Correct encoding (some messages are displayer weirdly)
+- Configure a self-updating method
+- Allow to setup a system wide, "discrete" mode where the program runs  in background showing no icons at all
+- Add domains in whitelist that are needed
+- Add blocked domains when you discover a new scam, risky website.
