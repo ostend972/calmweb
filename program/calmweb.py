@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 # Tonton Jo - 2025
 # Join me on Youtube: https://www.youtube.com/c/tontonjo
 
-# This is proof of concept - install at your own risks
-
 calmweb_version = "1.0.0"
+
 
 import os
 import shutil
