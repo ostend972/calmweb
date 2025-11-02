@@ -30,6 +30,7 @@ The program will:
     "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/ultimate.txt"  
     "https://raw.githubusercontent.com/Tontonjo/calmweb/refs/heads/main/filters/blocklist.txt"  
 - Domains manually added in the blocklist at %appdata%\calmweb\custom.cfg  
+<img width="668" height="17" alt="image" src="https://github.com/user-attachments/assets/01b07662-9826-4461-acd8-ae34e458ad81" />
 
 ### By default the following domains are whitelisted.
 - Domains listed in thoses lists:  
