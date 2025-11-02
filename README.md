@@ -27,7 +27,7 @@ The program will:
     "https://raw.githubusercontent.com/Tontonjo/calmweb/refs/heads/main/filters/blocklist.txt"  
 - Domains manually added in the blocklist at %appdata%\calmweb\custom.cfg  
 
-### By default the following domains are whitelisted:
+### By default the following domains are whitelisted.
 - Domains listed in thoses lists:  
     "https://raw.githubusercontent.com/Tontonjo/calmweb/refs/heads/main/filters/whitelist.txt"  
 - Domains manually added in the whitelist at %appdata%\calmweb\custom.cfg  
