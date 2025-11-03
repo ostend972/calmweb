@@ -21,6 +21,8 @@ import urllib3
 import ctypes
 import dns.resolver
 import tkinter as tk
+from collections import deque
+from datetime import datetime
 from PIL import Image, ImageDraw
 from pystray import Icon, MenuItem, Menu
 from tkinter.scrolledtext import ScrolledText
@@ -42,19 +44,34 @@ except Exception:
     WIN32_AVAILABLE = False
 
 # === Configuration ===
-BLOCKLIST_URLS = [
-    "https://raw.githubusercontent.com/StevenBlack/hosts/refs/heads/master/hosts",
-    "https://raw.githubusercontent.com/easylist/listefr/refs/heads/master/hosts.txt",
-    "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/ultimate.txt",
-    "https://raw.githubusercontent.com/Tontonjo/calmweb/refs/heads/main/filters/blocklist.txt"
-]
+# Configuration des blocklists (sera défini après les fonctions helper)
+BLOCKLIST_URLS = []
 
 WHITELIST_URLS = [
     "https://raw.githubusercontent.com/Tontonjo/calmweb/refs/heads/main/filters/whitelist.txt"
 ]
 
 manual_blocked_domains = {
-   "add.blocked.domain"
+   # Arnaques support technique francaises
+   "microsoft-assistance.fr",
+   "windows-support-france.com",
+   "depannage-ordinateur-gratuit.com",
+   "antivirus-gratuit-telechargement.net",
+   "support-technique-microsoft.fr",
+   "windows-security-alert.fr",
+   "computer-virus-detected.fr",
+
+   # Arnaques financières
+   "gagner-argent-facile.fr",
+   "lottery-winner-millions.fr",
+   "congratulations-you-won.fr",
+   "paypal-security-check.fr",
+   "secure-bank-verification.fr",
+
+   # Arnaques e-commerce
+   "soldes-exceptionnels.fr",
+   "promotion-limitee.com",
+   "offre-speciale-gratuit.fr"
 }
 
 whitelisted_domains = {
@@ -72,13 +89,15 @@ CUSTOM_CFG_NAME = "custom.cfg"
 
 USER_CFG_DIR = os.path.join(os.getenv('APPDATA') or os.path.expanduser("~"), "CalmWeb")
 USER_CFG_PATH = os.path.join(USER_CFG_DIR, CUSTOM_CFG_NAME)
+RED_FLAG_CACHE_PATH = os.path.join(USER_CFG_DIR, "red_flag_domains.txt")
+RED_FLAG_TIMESTAMP_PATH = os.path.join(USER_CFG_DIR, "red_flag_last_update.txt")
 
 # Global state
 block_enabled = True
 block_ip_direct = True      # Bloquer accès direct par IP
 block_http_traffic = True   # Bloquer le HTTP (non-HTTPS)
 block_http_other_ports = True
-log_buffer = []
+log_buffer = deque(maxlen=1000)
 current_resolver = None
 proxy_server = None
 proxy_server_thread = None
@@ -86,9 +105,17 @@ proxy_server_thread = None
 # Internal flags
 _RESOLVER_LOADING = threading.Event()
 _SHUTDOWN_EVENT = threading.Event()
+_CONFIG_LOCK = threading.RLock()
 
 # === Logging ===
 _LOG_LOCK = threading.Lock()
+
+def _safe_str(obj):
+    """Safely convert object to string."""
+    try:
+        return str(obj)
+    except Exception:
+        return f"<{type(obj).__name__} object>"
 def log(msg):
     try:
         timestamp = time.strftime("[%H:%M:%S]")
@@ -101,11 +128,8 @@ def log(msg):
         line = f"{timestamp} {safe_msg}"
 
         with _LOG_LOCK:
-            # Ajout dans buffer
+            # Ajout dans buffer (deque gère automatiquement la taille max)
             log_buffer.append(line)
-            # Limiter la taille durablement (avec marge de sécurité)
-            if len(log_buffer) > 1000:
-                del log_buffer[:200]
 
             # Affichage console protégé
             try:
@@ -317,11 +341,93 @@ def load_custom_cfg_to_globals(path):
     """
     global manual_blocked_domains, whitelisted_domains
     blocked, whitelist = parse_custom_cfg(path)
-    if blocked:
-        manual_blocked_domains = blocked
-    if whitelist:
-        whitelisted_domains = whitelist
+    with _CONFIG_LOCK:
+        if blocked:
+            manual_blocked_domains = blocked
+        if whitelist:
+            whitelisted_domains = whitelist
     return manual_blocked_domains, whitelisted_domains
+
+# === Red Flag Domains Auto-Update ===
+def should_update_red_flag_domains():
+    """Vérifie si red.flag.domains doit être mis à jour (quotidien)"""
+    try:
+        if not os.path.exists(RED_FLAG_TIMESTAMP_PATH):
+            return True
+
+        with open(RED_FLAG_TIMESTAMP_PATH, 'r') as f:
+            last_update_str = f.read().strip()
+
+        last_update = datetime.fromisoformat(last_update_str)
+        now = datetime.now()
+
+        # Mise à jour si plus de 24h ou nouveau jour
+        return (now - last_update).total_seconds() > 86400 or now.date() > last_update.date()
+
+    except Exception as e:
+        log(f"Erreur vérification timestamp red.flag.domains: {e}")
+        return True
+
+def download_red_flag_domains():
+    """Télécharge et cache red.flag.domains localement"""
+    try:
+        log("📥 Téléchargement red.flag.domains...")
+
+        # Créer le répertoire si nécessaire
+        os.makedirs(USER_CFG_DIR, exist_ok=True)
+
+        # Télécharger avec urllib3
+        http = urllib3.PoolManager()
+        response = http.request(
+            "GET",
+            "https://dl.red.flag.domains/pihole/red.flag.domains.txt",
+            timeout=urllib3.Timeout(connect=10.0, read=30.0)
+        )
+
+        if response.status == 200:
+            # Sauvegarder le fichier
+            with open(RED_FLAG_CACHE_PATH, 'wb') as f:
+                f.write(response.data)
+
+            # Marquer la date de mise à jour
+            with open(RED_FLAG_TIMESTAMP_PATH, 'w') as f:
+                f.write(datetime.now().isoformat())
+
+            log(f"✅ red.flag.domains mis à jour ({len(response.data)} bytes)")
+            return True
+        else:
+            log(f"❌ Échec téléchargement red.flag.domains: HTTP {response.status}")
+            return False
+
+    except Exception as e:
+        log(f"❌ Erreur téléchargement red.flag.domains: {e}")
+        return False
+
+def get_red_flag_domains_path():
+    """Retourne le chemin vers le fichier red.flag.domains (cache local ou URL)"""
+    if should_update_red_flag_domains():
+        download_red_flag_domains()
+
+    # Utiliser le cache local s'il existe
+    if os.path.exists(RED_FLAG_CACHE_PATH):
+        return f"file://{RED_FLAG_CACHE_PATH}"
+
+    # Fallback vers l'URL directe
+    return "https://dl.red.flag.domains/pihole/red.flag.domains.txt"
+
+def get_blocklist_urls():
+    """Retourne la liste des URLs de blocklist avec red.flag.domains mis à jour automatiquement"""
+    return [
+        "https://raw.githubusercontent.com/StevenBlack/hosts/refs/heads/master/hosts",
+        "https://raw.githubusercontent.com/easylist/listefr/refs/heads/master/hosts.txt",
+        "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/ultimate.txt",
+        "https://raw.githubusercontent.com/Tontonjo/calmweb/refs/heads/main/filters/blocklist.txt",
+        # Red Flag Domains - avec mise à jour automatique quotidienne
+        get_red_flag_domains_path()
+    ]
+
+# Initialisation des URLs de blocklist
+BLOCKLIST_URLS = get_blocklist_urls()
 
 # === Firewall / Proxy ===
 def add_firewall_rule(target_file):
@@ -383,11 +489,19 @@ class BlocklistResolver:
                     success = False
                     for attempt in range(3):
                         try:
-                            log(f"⬇️ Téléchargement blocklist {url} (tentative {attempt+1})")
-                            response = http.request("GET", url, timeout=urllib3.Timeout(connect=5.0, read=10.0))
-                            if response.status != 200:
-                                raise Exception(f"HTTP {response.status}")
-                            content = response.data.decode("utf-8", errors='ignore')
+                            log(f"⬇️ Chargement blocklist {url} (tentative {attempt+1})")
+
+                            # Support des fichiers locaux (file://)
+                            if url.startswith("file://"):
+                                file_path = url[7:]  # Enlever "file://"
+                                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                    content = f.read()
+                            else:
+                                # Téléchargement HTTP/HTTPS classique
+                                response = http.request("GET", url, timeout=urllib3.Timeout(connect=5.0, read=10.0))
+                                if response.status != 200:
+                                    raise Exception(f"HTTP {response.status}")
+                                content = response.data.decode("utf-8", errors='ignore')
                             for line in content.splitlines():
                                 try:
                                     line = line.split('#', 1)[0].strip()
@@ -1040,54 +1154,6 @@ def show_log_window():
     except Exception:
         pass
 
-# Duplicate original get_exe_icon definition preserved (identique comportement)
-def get_exe_icon(path, size=(64, 64)):
-    """
-    Récupère l’icône de l’exécutable et la convertit en PIL.Image
-    (duplicate preserved, safe).
-    """
-    # Si déjà implémentée plus haut, on la ré-utilise (défensif)
-    try:
-        if WIN32_AVAILABLE:
-            large, small = win32gui.ExtractIconEx(path, 0)
-        else:
-            return None
-    except Exception:
-        return None
-
-    if (not small) and (not large):
-        return None
-
-    hicon = large[0] if large else small[0]
-
-    try:
-        hdc = win32ui.CreateDCFromHandle(win32gui.GetDC(0))
-        hdc_mem = hdc.CreateCompatibleDC()
-        hbmp = win32ui.CreateBitmap()
-        hbmp.CreateCompatibleBitmap(hdc, size[0], size[1])
-        hdc_mem.SelectObject(hbmp)
-        win32gui.DrawIconEx(hdc_mem.GetSafeHdc(), 0, 0, hicon, size[0], size[1], 0, 0, win32con.DI_NORMAL)
-        bmpinfo = hbmp.GetInfo()
-        bmpstr = hbmp.GetBitmapBits(True)
-        img = Image.frombuffer(
-            'RGB',
-            (bmpinfo['bmWidth'], bmpinfo['bmHeight']),
-            bmpstr, 'raw', 'BGRX', 0, 1
-        )
-    except Exception:
-        img = None
-    finally:
-        try:
-            win32gui.DestroyIcon(hicon)
-        except Exception:
-            pass
-        try:
-            hdc_mem.DeleteDC()
-            hdc.DeleteDC()
-            win32gui.ReleaseDC(0, 0)
-        except Exception:
-            pass
-    return img
 
 def create_image():
     """
@@ -1394,7 +1460,7 @@ def run_calmweb():
         log(f"Erreur chargement config initiale: {e}")
 
     try:
-        resolver = BlocklistResolver(BLOCKLIST_URLS, RELOAD_INTERVAL)
+        resolver = BlocklistResolver(get_blocklist_urls(), RELOAD_INTERVAL)
         current_resolver = resolver
     except Exception as e:
         log(f"Erreur création resolver: {e}")
@@ -1439,22 +1505,50 @@ def run_calmweb():
         except KeyboardInterrupt:
             quit_app(None)
 
-if __name__ == "__main__":
+def robust_main():
+    """
+    Mécanisme auto-restart pour fiabilité maximale
+    """
+    restart_count = 0
+    max_restarts = 5
+
+    while restart_count < max_restarts:
+        try:
+            log(f"🚀 Démarrage CalmWeb (tentative {restart_count + 1})")
+
+            exe_name = os.path.basename(sys.argv[0]).lower()
+            if exe_name == "calmweb_proxy.exe":
+                install()
+            else:
+                run_calmweb()
+
+            # Si on arrive ici, tout va bien
+            break
+
+        except KeyboardInterrupt:
+            log("Arrêt demandé par Ctrl+C.")
+            break
+        except Exception as e:
+            restart_count += 1
+            log(f"❌ Erreur critique (tentative {restart_count}): {e}")
+            log(traceback.format_exc())
+
+            if restart_count < max_restarts:
+                log(f"🔄 Redémarrage automatique dans 5 secondes...")
+                time.sleep(5)
+            else:
+                log(f"❌ Échec après {max_restarts} tentatives. Arrêt définitif.")
+                break
+
+    # Arrêt propre final
     try:
-        exe_name = os.path.basename(sys.argv[0]).lower()
-        if exe_name == "calmweb_proxy.exe":
-            install()
-        else:
-            run_calmweb()
-    except Exception as e:
-        log(f"Erreur fatale main: {e}\n{traceback.format_exc()}")
-        # tenter un arrêt propre
-        try:
-            quit_app(None, None)
-        except Exception:
-            pass
-        # fallback exit
-        try:
-            sys.exit(1)
-        except Exception:
-            os._exit(1)
+        quit_app(None, None)
+    except Exception:
+        pass
+    try:
+        sys.exit(1)
+    except Exception:
+        os._exit(1)
+
+if __name__ == "__main__":
+    robust_main()

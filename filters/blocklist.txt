@@ -1,7 +1,7 @@
 # Thoses domains are blocked for security reasons, if one needs to be allowed, use the custom.cfg whitelist
 teamviewer.com
 remotedesktop.google.com
-remotepc.com"
+remotepc.com
 anyviewer.com
 splashtop.com
 anydesk.com
