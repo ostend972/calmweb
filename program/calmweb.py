@@ -47,7 +47,9 @@ BLOCKLIST_URLS = [
     "https://raw.githubusercontent.com/StevenBlack/hosts/refs/heads/master/hosts",
     "https://raw.githubusercontent.com/easylist/listefr/refs/heads/master/hosts.txt",
     "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/ultimate.txt",
-    "https://raw.githubusercontent.com/Tontonjo/calmweb/refs/heads/main/filters/blocklist.txt"
+    "https://raw.githubusercontent.com/Tontonjo/calmweb/refs/heads/main/filters/blocklist.txt",
+    # Red Flag Domains - French scam domains (Creative Commons BY-NC-SA 4.0)
+    "https://dl.red.flag.domains/pihole/red.flag.domains.txt"
 ]
 
 WHITELIST_URLS = [
@@ -55,7 +57,26 @@ WHITELIST_URLS = [
 ]
 
 manual_blocked_domains = {
-   "add.blocked.domain"
+   # Arnaques support technique francaises
+   "microsoft-assistance.fr",
+   "windows-support-france.com",
+   "depannage-ordinateur-gratuit.com",
+   "antivirus-gratuit-telechargement.net",
+   "support-technique-microsoft.fr",
+   "windows-security-alert.fr",
+   "computer-virus-detected.fr",
+
+   # Arnaques financières
+   "gagner-argent-facile.fr",
+   "lottery-winner-millions.fr",
+   "congratulations-you-won.fr",
+   "paypal-security-check.fr",
+   "secure-bank-verification.fr",
+
+   # Arnaques e-commerce
+   "soldes-exceptionnels.fr",
+   "promotion-limitee.com",
+   "offre-speciale-gratuit.fr"
 }
 
 whitelisted_domains = {
@@ -1398,22 +1419,50 @@ def run_calmweb():
         except KeyboardInterrupt:
             quit_app(None)
 
-if __name__ == "__main__":
+def robust_main():
+    """
+    Mécanisme auto-restart pour fiabilité maximale
+    """
+    restart_count = 0
+    max_restarts = 5
+
+    while restart_count < max_restarts:
+        try:
+            log(f"🚀 Démarrage CalmWeb (tentative {restart_count + 1})")
+
+            exe_name = os.path.basename(sys.argv[0]).lower()
+            if exe_name == "calmweb_proxy.exe":
+                install()
+            else:
+                run_calmweb()
+
+            # Si on arrive ici, tout va bien
+            break
+
+        except KeyboardInterrupt:
+            log("Arrêt demandé par Ctrl+C.")
+            break
+        except Exception as e:
+            restart_count += 1
+            log(f"❌ Erreur critique (tentative {restart_count}): {e}")
+            log(traceback.format_exc())
+
+            if restart_count < max_restarts:
+                log(f"🔄 Redémarrage automatique dans 5 secondes...")
+                time.sleep(5)
+            else:
+                log(f"❌ Échec après {max_restarts} tentatives. Arrêt définitif.")
+                break
+
+    # Arrêt propre final
     try:
-        exe_name = os.path.basename(sys.argv[0]).lower()
-        if exe_name == "calmweb_proxy.exe":
-            install()
-        else:
-            run_calmweb()
-    except Exception as e:
-        log(f"Erreur fatale main: {e}\n{traceback.format_exc()}")
-        # tenter un arrêt propre
-        try:
-            quit_app(None, None)
-        except Exception:
-            pass
-        # fallback exit
-        try:
-            sys.exit(1)
-        except Exception:
-            os._exit(1)
+        quit_app(None, None)
+    except Exception:
+        pass
+    try:
+        sys.exit(1)
+    except Exception:
+        os._exit(1)
+
+if __name__ == "__main__":
+    robust_main()
