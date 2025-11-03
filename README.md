@@ -57,4 +57,3 @@ Everything is subject to discussion and enhancements! Share your knolwedges.
 - Add blocked domains when you discover a new scam, risky website.
 - Ensure whitelists are working perfectly no matter what
 - URLHaus provide URL and IP's. for now only the domains are used and it may be more accurate to block the whole URL instead of domain in order to not block file sharing services that may be used for decent purposes.
-- URLHaus prvide a list of IP on the form of URL's and thoses are not blocked -> should be with whole URL aswell.
