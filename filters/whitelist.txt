@@ -6,3 +6,4 @@ msecnd.net
 msftidentity.com
 msftauth.net
 digicert.com
+ctldl.windowsupdate.com
