@@ -4,8 +4,7 @@
 # Tonton Jo - 2025
 # Join me on Youtube: https://www.youtube.com/c/tontonjo
 
-calmweb_version = "1.1.0"
-
+calmweb_version = "1.1.1"
 
 import os
 import shutil
@@ -19,7 +18,13 @@ import socket
 import ssl
 import urllib3
 import ctypes
-import dns.resolver
+import zipfile
+import io
+import csv
+import select
+import traceback
+import signal
+import ipaddress
 import tkinter as tk
 from collections import deque
 from datetime import datetime
@@ -28,10 +33,7 @@ from pystray import Icon, MenuItem, Menu
 from tkinter.scrolledtext import ScrolledText
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import urllib.parse
-import select
-import ipaddress
-import traceback
-import signal
+from urllib.parse import urlparse
 
 # Optional Windows-only imports: encapsulées pour éviter crash si non disponibles
 try:
@@ -403,6 +405,7 @@ def get_blocklist_urls():
         "https://raw.githubusercontent.com/easylist/listefr/refs/heads/master/hosts.txt",
         "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/ultimate.txt",
         "https://raw.githubusercontent.com/Tontonjo/calmweb/refs/heads/main/filters/blocklist.txt",
+        "https://urlhaus.abuse.ch/downloads/csv/",
         # Red Flag Domains - avec mise à jour automatique quotidienne
         get_red_flag_domains_path()
     ]
@@ -452,12 +455,8 @@ class BlocklistResolver:
             self._load_whitelist()
         except Exception as e:
             log(f"BlocklistResolver init error: {e}")
-
+            
     def _load_blocklist(self):
-        """
-        Télécharge et parse les blocklists. Robustesse: retries, timeouts, découpage.
-        Définit self.blocked_domains atomiquement.
-        """
         if self._loading_lock.locked():
             log("Blocklist load déjà en cours, skip.")
             return
@@ -466,26 +465,71 @@ class BlocklistResolver:
             try:
                 domains = set()
                 http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', ssl_context=ssl.create_default_context())
+
                 for url in self.blocklist_urls:
                     success = False
                     for attempt in range(3):
                         try:
                             log(f"⬇️ Chargement blocklist {url} (tentative {attempt+1})")
 
-                            # Support des fichiers locaux (file://)
+                            # --- Téléchargement ou lecture locale
                             if url.startswith("file://"):
                                 file_path = url[7:]  # Enlever "file://"
-                                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                                    content = f.read()
+                                with open(file_path, "rb") as f:
+                                    raw_data = f.read()
                             else:
-                                # Téléchargement HTTP/HTTPS classique
-                                response = http.request("GET", url, timeout=urllib3.Timeout(connect=5.0, read=10.0))
+                                response = http.request("GET", url, timeout=urllib3.Timeout(connect=5.0, read=15.0))
                                 if response.status != 200:
                                     raise Exception(f"HTTP {response.status}")
-                                content = response.data.decode("utf-8", errors='ignore')
-                            for line in content.splitlines():
-                                try:
-                                    line = line.split('#', 1)[0].strip()
+                                raw_data = response.data
+
+                            # --- Si ZIP, extraction et parsing
+                            if zipfile.is_zipfile(io.BytesIO(raw_data)):
+                                log(f"🗜️ Archive ZIP détectée : {url}")
+                                with zipfile.ZipFile(io.BytesIO(raw_data)) as zf:
+                                    for name in zf.namelist():
+                                        if not name.lower().endswith((".txt", ".csv", ".log")):
+                                            continue
+                                        log(f"   → Lecture {name} dans l’archive ZIP")
+                                        content = zf.read(name).decode("utf-8", errors="ignore")
+
+                                        for line in content.splitlines():
+                                            if not line or line.startswith("#"):
+                                                continue
+                                            # --- Format CSV (ex: URLHaus)
+                                            if line.startswith('"') and "," in line:
+                                                try:
+                                                    reader = csv.reader(io.StringIO(line))
+                                                    row = next(reader)
+                                                    if len(row) >= 3:
+                                                        url_candidate = row[2].strip('"').strip()
+                                                        host = urlparse(url_candidate).hostname
+                                                        if host:
+                                                            host = host.lower()
+                                                            try:
+                                                                ipaddress.ip_address(host)
+                                                                domains.add(host)
+                                                            except ValueError:
+                                                                if len(host) <= 253:
+                                                                    domains.add(host)
+                                                except Exception:
+                                                    continue
+                                            else:
+                                                # --- Format texte simple
+                                                parts = line.split()
+                                                if not parts:
+                                                    continue
+                                                domain = parts[0].strip().lower().lstrip(".")
+                                                if not domain or len(domain) > 253:
+                                                    continue
+                                                if not self._looks_like_ip(domain):
+                                                    domains.add(domain)
+
+                            else:
+                                # --- Fichier texte classique
+                                content = raw_data.decode("utf-8", errors="ignore")
+                                for line in content.splitlines():
+                                    line = line.split("#", 1)[0].strip()
                                     if not line:
                                         continue
                                     parts = line.split()
@@ -499,29 +543,35 @@ class BlocklistResolver:
                                             domain = parts[1]
                                     if not domain:
                                         continue
-                                    domain = domain.lower().lstrip('.')
-                                    if not domain or self._looks_like_ip(domain):
+                                    domain = domain.lower().lstrip(".")
+                                    if not domain or len(domain) > 253:
                                         continue
-                                    if len(domain) > 253:
-                                        continue
-                                    domains.add(domain)
-                                except Exception:
-                                    continue
+                                    if not self._looks_like_ip(domain):
+                                        domains.add(domain)
+
                             success = True
                             break
+
                         except Exception as e:
                             log(f"[Erreur] Loading {url} attempt {attempt+1}: {e}")
                             time.sleep(1 + attempt * 2)
+
                     if not success:
                         log(f"[⚠️] Échec téléchargement blocklist depuis {url}")
+
+                # --- Mise à jour atomique de la blocklist
                 with self._lock:
                     self.blocked_domains = domains
                     self.last_reload = time.time()
-                log(f"✅ {len(domains)} domaines bloqués chargés.")
+
+                log(f"✅ {len(domains)} domaines/IP bloqués chargés.")
+
             except Exception as e:
                 log(f"Erreur _load_blocklist: {e}\n{traceback.format_exc()}")
+
             finally:
                 _RESOLVER_LOADING.clear()
+
 
     def _load_whitelist(self):
         """
