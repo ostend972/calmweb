@@ -1,0 +1,5 @@
+{
+  "name": "CalmWeb Dashboard",
+  "description": "A modern, interactive dashboard to monitor and configure web protection settings. It provides real-time statistics, activity logs, and configuration options for managing blocklists and whitelists.",
+  "requestFramePermissions": []
+}

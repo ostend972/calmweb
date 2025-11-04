@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pyinstaller:*)",
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Bash(del distCalmWeb.exe)",
+      "Bash(./CalmWeb.exe)",
+      "Bash(npm install)",
+      "Bash(npm run dev:*)",
+      "Bash(npm run build:*)",
+      "Bash(git init:*)",
+      "Bash(git remote add:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

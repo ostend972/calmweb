@@ -1,0 +1,15 @@
+# CalmWeb - Dépendances Python
+
+# Interface système tray
+pystray>=0.19.4
+Pillow>=9.0.0
+
+# Gestion des icônes Windows
+pywin32>=306
+
+# Compilation d'exécutable
+pyinstaller>=5.13.0
+
+# Dépendances standard (généralement incluses)
+# requests>=2.28.0
+# urllib3>=1.26.0
