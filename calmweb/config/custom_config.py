@@ -69,7 +69,7 @@ def parse_custom_cfg(path):
     Parses a simple custom.cfg file. Returns (blocked_set, whitelist_set).
     Error tolerant.
     """
-    from .settings import block_ip_direct, block_http_traffic, block_http_other_ports
+    from .settings import block_ip_direct, block_http_traffic, block_http_other_ports, configure_ie_proxy
 
     blocked = set()
     whitelist = set()
@@ -78,6 +78,7 @@ def parse_custom_cfg(path):
     block_ip_direct = True
     block_http_traffic = True
     block_http_other_ports = True
+    configure_ie_proxy = True
 
     if not os.path.exists(path):
         log(f"custom.cfg not found at {path}")
@@ -118,6 +119,8 @@ def parse_custom_cfg(path):
                                 block_http_traffic = enabled
                             elif key == "block_http_other_ports":
                                 block_http_other_ports = enabled
+                            elif key == "configure_ie_proxy":
+                                configure_ie_proxy = enabled
                         except Exception:
                             # Malformed line -> ignore
                             pass
@@ -130,7 +133,7 @@ def parse_custom_cfg(path):
         log(
             f"custom.cfg loaded: {len(blocked)} blocked, {len(whitelist)} whitelist, "
             f"IP block={block_ip_direct}, HTTP block={block_http_traffic}, "
-            f"HTTP other ports={block_http_other_ports}"
+            f"HTTP other ports={block_http_other_ports}, IE proxy={configure_ie_proxy}"
         )
     except Exception as e:
         log(f"Error reading custom.cfg {path}: {e}")
@@ -165,17 +168,76 @@ def load_custom_cfg_to_globals(path):
     """
     Loads user config to global variables.
     """
-    from .settings import manual_blocked_domains, whitelisted_domains
+    import sys
+    from . import settings
 
+    # Parse the config file which updates local variables
     blocked, whitelist = parse_custom_cfg(path)
+
+    # Update domains
     with _CONFIG_LOCK:
         if blocked:
-            manual_blocked_domains.clear()
-            manual_blocked_domains.update(blocked)
+            settings.manual_blocked_domains.clear()
+            settings.manual_blocked_domains.update(blocked)
         if whitelist:
-            whitelisted_domains.clear()
-            whitelisted_domains.update(whitelist)
-    return manual_blocked_domains, whitelisted_domains
+            settings.whitelisted_domains.clear()
+            settings.whitelisted_domains.update(whitelist)
+
+    # Get the updated values from parse_custom_cfg's local scope
+    # We need to re-parse to get the settings values
+    cfg_settings = {}
+    if os.path.exists(path):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                current_section = None
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    up = line.upper()
+                    if up == "[OPTIONS]":
+                        current_section = "OPTIONS"
+                        continue
+                    elif up in ["[BLOCK]", "[WHITELIST]"]:
+                        current_section = up[1:-1]
+                        continue
+
+                    if current_section == "OPTIONS":
+                        try:
+                            if ' = ' in line:
+                                key, value_str = line.split(' = ', 1)
+                                enabled = value_str.strip().lower() in ('1', 'true', 'yes', 'on')
+                                cfg_settings[key.strip()] = enabled
+                        except Exception:
+                            pass
+        except Exception as e:
+            log(f"Error re-parsing config for settings: {e}")
+
+    # Update settings module variables
+    if 'block_ip_direct' in cfg_settings:
+        settings.block_ip_direct = cfg_settings['block_ip_direct']
+    if 'block_http_traffic' in cfg_settings:
+        settings.block_http_traffic = cfg_settings['block_http_traffic']
+    if 'block_http_other_ports' in cfg_settings:
+        settings.block_http_other_ports = cfg_settings['block_http_other_ports']
+    if 'configure_ie_proxy' in cfg_settings:
+        settings.configure_ie_proxy = cfg_settings['configure_ie_proxy']
+
+    # Also update the config_manager to ensure synchronization
+    try:
+        from .config_manager import config_manager
+        if 'block_ip_direct' in cfg_settings:
+            config_manager.block_ip_direct = cfg_settings['block_ip_direct']
+        if 'block_http_traffic' in cfg_settings:
+            config_manager.block_http_traffic = cfg_settings['block_http_traffic']
+        if 'block_http_other_ports' in cfg_settings:
+            config_manager.block_http_other_ports = cfg_settings['block_http_other_ports']
+        if 'configure_ie_proxy' in cfg_settings:
+            config_manager.configure_ie_proxy = cfg_settings['configure_ie_proxy']
+    except Exception as e:
+        log(f"Warning: Could not update config_manager: {e}")
+
+    return settings.manual_blocked_domains, settings.whitelisted_domains
 
 
 # === Red Flag Domains Auto-Update ===
@@ -264,9 +326,9 @@ def get_blocklist_urls():
 def write_settings_to_custom_cfg():
     """Write current settings to custom.cfg file."""
     from .settings import (
-        block_enabled, block_ip_direct, block_http_traffic, block_http_other_ports,
         manual_blocked_domains, whitelisted_domains, _CONFIG_LOCK
     )
+    from .config_manager import config_manager
 
     try:
         cfg_path = get_custom_cfg_path()
@@ -282,10 +344,10 @@ def write_settings_to_custom_cfg():
 
                 # Settings section
                 f.write("[SETTINGS]\n")
-                f.write(f"block_enabled={'true' if block_enabled else 'false'}\n")
-                f.write(f"block_ip_direct={'true' if block_ip_direct else 'false'}\n")
-                f.write(f"block_http_traffic={'true' if block_http_traffic else 'false'}\n")
-                f.write(f"block_http_other_ports={'true' if block_http_other_ports else 'false'}\n\n")
+                f.write(f"block_enabled={'true' if config_manager.block_enabled else 'false'}\n")
+                f.write(f"block_ip_direct={'true' if config_manager.block_ip_direct else 'false'}\n")
+                f.write(f"block_http_traffic={'true' if config_manager.block_http_traffic else 'false'}\n")
+                f.write(f"block_http_other_ports={'true' if config_manager.block_http_other_ports else 'false'}\n\n")
 
                 # Blocked domains section
                 f.write("[BLOCK]\n")
@@ -407,17 +469,22 @@ def load_enhanced_custom_cfg(path):
                             val = val.strip().lower()
                             enabled = val in ("1", "true", "yes", "on")
 
-                            # Update settings module directly
+                            # Update settings module and config_manager
                             import calmweb.config.settings as settings
+                            from .config_manager import config_manager
                             with _CONFIG_LOCK:
                                 if key == "block_enabled":
                                     settings.block_enabled = enabled
+                                    config_manager.block_enabled = enabled
                                 elif key == "block_ip_direct":
                                     settings.block_ip_direct = enabled
+                                    config_manager.block_ip_direct = enabled
                                 elif key == "block_http_traffic":
                                     settings.block_http_traffic = enabled
+                                    config_manager.block_http_traffic = enabled
                                 elif key == "block_http_other_ports":
                                     settings.block_http_other_ports = enabled
+                                    config_manager.block_http_other_ports = enabled
 
                     elif section == "BLOCK":
                         domain = line.lower().lstrip('.')

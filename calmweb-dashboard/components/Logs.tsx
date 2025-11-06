@@ -49,7 +49,7 @@ const Logs: React.FC = () => {
                 setLogs(parsedLogs);
                 setError(null);
             } catch (err) {
-                setError('Failed to fetch logs.');
+                setError('Échec du chargement des journaux.');
                 console.error(err);
             } finally {
                 if (loading) setLoading(false);
@@ -124,7 +124,7 @@ const Logs: React.FC = () => {
                                 setLogs(parsedLogs);
                                 setError(null);
                             } catch (err) {
-                                setError('Failed to refresh logs.');
+                                setError('Échec de l\'actualisation des journaux.');
                                 console.error(err);
                             } finally {
                                 setLoading(false);

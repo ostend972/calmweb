@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend, BarChart, Bar, Cell } from 'recharts';
 import StatCard from './StatCard';
+import UpdateStatus from './UpdateStatus';
 import { ICONS } from '../constants';
 import { ActivityEntry, DashboardData } from '../types';
 import { fetchDashboardData } from '../services/api';
@@ -19,7 +20,7 @@ const Dashboard: React.FC = () => {
             setData(result);
             setError(null);
         } catch (err) {
-            setError('Failed to fetch dashboard data. Is the backend running?');
+            setError('Échec du chargement des données du tableau de bord. Le serveur backend est-il en fonctionnement ?');
             console.error(err);
         } finally {
             setLoading(false);
@@ -60,6 +61,8 @@ const Dashboard: React.FC = () => {
                 <StatCard icon={ICONS.REQUESTS} value={data.total_requests.toLocaleString('fr-FR')} label="Requêtes totales" />
                 <StatCard icon={ICONS.SECURITY} value="Élevé" label="Niveau de sécurité" />
             </div>
+
+            <UpdateStatus />
 
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
                     <div className="lg:col-span-3 bg-calm-gray-800 p-6 rounded-lg shadow-lg">

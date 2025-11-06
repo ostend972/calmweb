@@ -48,7 +48,13 @@ DASHBOARD_DIR = os.path.join(
 )
 
 # React dashboard build directory (priorité)
-DASHBOARD_DIST_DIR = os.path.join(DASHBOARD_DIR, "dist")
+# For PyInstaller, check if we're running from a bundle
+if getattr(sys, 'frozen', False):
+    # Running in PyInstaller bundle
+    DASHBOARD_DIST_DIR = os.path.join(sys._MEIPASS, "calmweb-dashboard-dist")
+else:
+    # Running in development
+    DASHBOARD_DIST_DIR = os.path.join(DASHBOARD_DIR, "dist")
 
 # User configuration paths
 USER_CFG_DIR = os.path.join(os.getenv('APPDATA') or os.path.expanduser("~"), "CalmWeb")
@@ -61,6 +67,7 @@ block_enabled = True
 block_ip_direct = True      # Block direct IP access
 block_http_traffic = True   # Block HTTP (non-HTTPS)
 block_http_other_ports = True
+configure_ie_proxy = True  # Configure Internet Explorer proxy (needed for system-wide proxy)
 
 # Threading objects
 _RESOLVER_LOADING = threading.Event()

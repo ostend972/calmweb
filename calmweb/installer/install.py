@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import winreg
 
 from ..config.settings import INSTALL_DIR, EXE_NAME, manual_blocked_domains, whitelisted_domains
 from ..config.custom_config import ensure_custom_cfg_exists
@@ -129,6 +130,15 @@ def install():
 
     add_task_from_xml(xml_content)
 
+    # Add registry entry for Windows startup applications
+    try:
+        target_file = os.path.join(INSTALL_DIR, EXE_NAME)
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_WRITE) as key:
+            winreg.SetValueEx(key, "CalmWeb", 0, winreg.REG_SZ, target_file)
+            log("Registry startup entry added successfully.")
+    except Exception as e:
+        log(f"Error adding registry startup entry: {e}")
+
     log("✅ Installation completed! CalmWeb will start automatically at system startup.")
     log("📊 Dashboard available at: http://127.0.0.1:8081")
     log("⚙️  Configuration file location: %APPDATA%\\CalmWeb\\custom.cfg")
@@ -148,6 +158,16 @@ def uninstall():
     Uninstallation: remove files, scheduled task, and firewall rules.
     """
     log("Starting CalmWeb uninstallation...")
+
+    # Remove registry startup entry
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_WRITE) as key:
+            winreg.DeleteValue(key, "CalmWeb")
+            log("Registry startup entry removed successfully.")
+    except FileNotFoundError:
+        log("No registry startup entry found to remove.")
+    except Exception as e:
+        log(f"Error removing registry startup entry: {e}")
 
     # Remove scheduled task
     try:

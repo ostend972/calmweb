@@ -111,6 +111,15 @@ def reload_config_action(icon=None, item=None):
         load_custom_cfg_to_globals(cfg_path)
         log("Local configuration reloaded from user file.")
 
+        # Also update config_manager to ensure synchronization
+        try:
+            from ..config.config_manager import config_manager
+            from ..config import settings
+            config_manager.update_from_legacy_settings(settings)
+            log("Config manager synchronized after reload")
+        except Exception as e:
+            log(f"Warning: Could not sync config_manager after reload: {e}")
+
         global current_resolver
         if current_resolver:
             # Launch both reloads (blocklist + whitelist) in parallel

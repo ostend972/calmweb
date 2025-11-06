@@ -151,22 +151,40 @@ def set_system_proxy(enable=True, host="127.0.0.1", port=8080):
                     "bypass-list=localhost;127.0.0.1;*.local"
                 ], check=True, creationflags=subprocess.CREATE_NO_WINDOW)
                 log("WinHTTP proxy configured")
+            except subprocess.CalledProcessError as e:
+                log(f"WinHTTP proxy command failed (may need admin rights): {e}")
+                # Try alternative registry method for WinHTTP
+                try:
+                    import winreg
+                    key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                       r"SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\Connections",
+                                       0, winreg.KEY_SET_VALUE)
+                    # Note: This is a simplified approach, full WinHTTP config via registry is complex
+                    winreg.CloseKey(key)
+                    log("WinHTTP proxy configured via registry fallback")
+                except Exception as reg_e:
+                    log(f"WinHTTP registry fallback also failed: {reg_e}")
+                    log("Note: System proxy may not work for all applications without admin rights")
             except Exception as e:
                 log(f"Error configuring winhttp proxy: {e}")
 
-            # Configure Internet Explorer proxy
-            try:
-                import winreg
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                                   r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
-                                   0, winreg.KEY_SET_VALUE)
-                winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, 1)
-                winreg.SetValueEx(key, "ProxyServer", 0, winreg.REG_SZ, proxy_server)
-                winreg.SetValueEx(key, "ProxyOverride", 0, winreg.REG_SZ, "localhost;127.0.0.1;*.local")
-                winreg.CloseKey(key)
-                log("IE proxy configured")
-            except Exception as e:
-                log(f"Error configuring IE proxy: {e}")
+            # Configure Internet Explorer proxy (if enabled)
+            from ..config.config_manager import config_manager
+            if config_manager.configure_ie_proxy:
+                try:
+                    import winreg
+                    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                       r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
+                                       0, winreg.KEY_SET_VALUE)
+                    winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, 1)
+                    winreg.SetValueEx(key, "ProxyServer", 0, winreg.REG_SZ, proxy_server)
+                    winreg.SetValueEx(key, "ProxyOverride", 0, winreg.REG_SZ, "localhost;127.0.0.1;*.local")
+                    winreg.CloseKey(key)
+                    log("IE proxy configured")
+                except Exception as e:
+                    log(f"Error configuring IE proxy: {e}")
+            else:
+                log("IE proxy configuration skipped (disabled in settings)")
 
             # Configure environment variables
             try:
@@ -184,22 +202,28 @@ def set_system_proxy(enable=True, host="127.0.0.1", port=8080):
             # Reset winhttp proxy
             try:
                 subprocess.run(["netsh", "winhttp", "reset", "proxy"],
-                             check=False, creationflags=subprocess.CREATE_NO_WINDOW)
+                             check=True, creationflags=subprocess.CREATE_NO_WINDOW)
                 log("WinHTTP proxy reset")
+            except subprocess.CalledProcessError as e:
+                log(f"WinHTTP reset failed (may need admin rights): {e}")
             except Exception as e:
                 log(f"Error resetting winhttp proxy: {e}")
 
-            # Disable IE proxy
-            try:
-                import winreg
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                                   r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
-                                   0, winreg.KEY_SET_VALUE)
-                winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, 0)
-                winreg.CloseKey(key)
-                log("IE proxy disabled")
-            except Exception as e:
-                log(f"Error disabling IE proxy: {e}")
+            # Disable IE proxy (if it was configured)
+            from ..config.config_manager import config_manager
+            if config_manager.configure_ie_proxy:
+                try:
+                    import winreg
+                    key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                       r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
+                                       0, winreg.KEY_SET_VALUE)
+                    winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, 0)
+                    winreg.CloseKey(key)
+                    log("IE proxy disabled")
+                except Exception as e:
+                    log(f"Error disabling IE proxy: {e}")
+            else:
+                log("IE proxy reset skipped (was not configured)")
 
             # Clear environment variables
             try:

@@ -15,8 +15,9 @@ import ssl
 
 from ..config.settings import (
     WHITELIST_URLS, manual_blocked_domains, whitelisted_domains,
-    block_ip_direct, _RESOLVER_LOADING
+    _RESOLVER_LOADING
 )
+from ..config.config_manager import config_manager
 from ..utils.logging import log
 
 
@@ -291,7 +292,7 @@ class BlocklistResolver:
                         log(f"✅ [WHITELIST ALLOW IP] {hostname}")
                         return False
                     # otherwise rely on flag block_ip_direct
-                    return bool(block_ip_direct)
+                    return bool(config_manager.block_ip_direct)
             except Exception:
                 # if problem during IP detection, continue as hostname
                 pass

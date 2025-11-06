@@ -11,7 +11,7 @@ const Header: React.FC<HeaderProps> = ({ isProtectionActive, onToggleProtection 
         <header className="flex flex-col md:flex-row justify-between items-center pb-6 border-b border-calm-gray-700">
             <div className="flex items-center mb-4 md:mb-0">
                 <img src="/calmweb-logo.png" alt="CalmWeb Logo" className="h-12 w-12 rounded-lg mr-4" />
-                <h1 className="text-2xl md:text-3xl font-bold text-calm-gray-100">CalmWeb Dashboard</h1>
+                <h1 className="text-2xl md:text-3xl font-bold text-calm-gray-100">Tableau de Bord CalmWeb</h1>
             </div>
             <div className="flex items-center bg-calm-gray-800 p-2 rounded-lg">
                 <div className="flex items-center mr-4">

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { ICONS } from '../constants';
-import { fetchConfig, saveConfig, fetchDomains } from '../services/api';
+import { fetchConfig, saveConfig, fetchDomains, getSettings, updateSettings } from '../services/api';
 
 const ToggleSwitch: React.FC<{ id: string; checked: boolean; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void; }> = ({ id, checked, onChange }) => (
     <label htmlFor={id} className="relative inline-flex items-center cursor-pointer">
@@ -21,16 +21,74 @@ const DomainList: React.FC<{
 }> = ({ title, domains, setDomains, placeholder, listType, manualDomains, setManualDomains }) => {
     const [inputValue, setInputValue] = useState('');
 
-    const handleAddDomain = () => {
-        if (inputValue && !manualDomains.includes(inputValue)) {
-            setManualDomains([...manualDomains, inputValue]);
+    // Helper function to save domains to custom.cfg
+    const saveDomainsToConfig = async (domainsToSave: string[]) => {
+        const configLines = [
+            '# CalmWeb Custom Configuration',
+            '# Domaines manuels à bloquer (un par ligne)',
+            '',
+            '[BLOCK]'
+        ];
+
+        if (domainsToSave.length > 0) {
+            domainsToSave.forEach(domain => {
+                configLines.push(domain);
+            });
+        } else {
+            configLines.push('# Aucun domaine manuel bloqué');
+        }
+
+        const configContent = configLines.join('\n');
+        await saveConfig(configContent);
+    };
+
+    const handleAddDomain = async () => {
+        if (inputValue) {
+            // Check if domain already exists in any form (manual or external)
+            const domainExists = domains.some(d => d.domain === inputValue) || manualDomains.includes(inputValue);
+
+            if (!domainExists) {
+                const newManualDomains = [...manualDomains, inputValue];
+
+                // Add to manual domains list
+                setManualDomains(newManualDomains);
+
+                // Also add to the display list
+                const newDomain = {
+                    domain: inputValue,
+                    source: 'manual',
+                    removable: true
+                };
+                setDomains([...domains, newDomain]);
+
+                // Auto-save to persist the change
+                try {
+                    await saveDomainsToConfig(newManualDomains);
+                } catch (error) {
+                    console.error('Failed to auto-save domain:', error);
+                }
+            }
+
             setInputValue('');
         }
     };
 
-    const handleRemoveDomain = (domainToRemove: string, isRemovable: boolean) => {
+    const handleRemoveDomain = async (domainToRemove: string, isRemovable: boolean) => {
         if (isRemovable) {
-            setManualDomains(manualDomains.filter(domain => domain !== domainToRemove));
+            const newManualDomains = manualDomains.filter(domain => domain !== domainToRemove);
+
+            // Remove from manual domains list
+            setManualDomains(newManualDomains);
+
+            // Also remove from the display list
+            setDomains(domains.filter(domainObj => domainObj.domain !== domainToRemove));
+
+            // Auto-save to persist the change
+            try {
+                await saveDomainsToConfig(newManualDomains);
+            } catch (error) {
+                console.error('Failed to auto-save after domain removal:', error);
+            }
         }
     };
 
@@ -108,50 +166,17 @@ const Configuration: React.FC = () => {
             try {
                 setLoading(true);
 
-                // Charger la configuration depuis custom.cfg
-                const configText = await fetchConfig();
+                // Charger les settings depuis la nouvelle API
+                const settingsData = await getSettings();
+                console.log('Settings from API:', settingsData); // Debug
 
-                // Parser les settings depuis [OPTIONS] dans custom.cfg
-                const lines = configText.split('\n');
-                let inOptionsSection = false;
                 const configSettings = {
-                    blockIpDirect: true,
-                    blockHttp: true,
-                    blockOtherPorts: false
-                }; // Valeurs par défaut
+                    blockIpDirect: settingsData.block_ip_direct,
+                    blockHttp: settingsData.block_http_traffic,
+                    blockOtherPorts: settingsData.block_http_other_ports
+                };
 
-                for (const line of lines) {
-                    const trimmedLine = line.trim();
-                    if (trimmedLine === '[OPTIONS]') {
-                        inOptionsSection = true;
-                        continue;
-                    }
-                    if (trimmedLine.startsWith('[') && trimmedLine !== '[OPTIONS]') {
-                        inOptionsSection = false;
-                        continue;
-                    }
-
-                    if (inOptionsSection && trimmedLine.includes('=')) {
-                        const [key, value] = trimmedLine.split('=').map(s => s.trim());
-                        console.log(`Parsing config: ${key} = ${value}`); // Debug
-                        switch (key) {
-                            case 'block_ip_direct':
-                                configSettings.blockIpDirect = value === '1';
-                                console.log(`blockIpDirect set to: ${configSettings.blockIpDirect}`); // Debug
-                                break;
-                            case 'block_http_traffic':
-                                configSettings.blockHttp = value === '1';
-                                console.log(`blockHttp set to: ${configSettings.blockHttp}`); // Debug
-                                break;
-                            case 'block_http_other_ports':
-                                configSettings.blockOtherPorts = value === '1';
-                                console.log(`blockOtherPorts set to: ${configSettings.blockOtherPorts}`); // Debug
-                                break;
-                        }
-                    }
-                }
-
-                console.log('Final config settings:', configSettings); // Debug
+                console.log('Converted config settings:', configSettings); // Debug
                 setSettings(configSettings);
 
                 // Charger les domaines via la nouvelle API
@@ -184,39 +209,61 @@ const Configuration: React.FC = () => {
 
     const handleToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { id, checked } = e.target;
+
+        // Update only local state - no immediate save
+        // Settings will be applied when user clicks "Sauvegarder"
         setSettings(prev => ({ ...prev, [id]: checked }));
+        console.log(`Setting ${id} changed to ${checked} (will be saved on "Sauvegarder")`);
     };
 
     const handleSave = async () => {
         setSaveStatus('saving');
         try {
-            // Construire le contenu de custom.cfg avec les sections appropriées
-            const configLines = ['# CalmWeb Configuration', '# Domaines à bloquer (un par ligne)', '', '[BLOCK]'];
+            // 1. Sauvegarder les paramètres de protection via l'API
+            const parameterMap: { [key: string]: string } = {
+                'blockIpDirect': 'block_ip_direct',
+                'blockHttp': 'block_http_traffic',
+                'blockOtherPorts': 'block_http_other_ports'
+            };
 
-            // Ajouter les domaines manuels bloqués
-            manualBlockedDomains.forEach(domain => {
-                configLines.push(domain);
+            const settingsToSave: any = {};
+            Object.entries(settings).forEach(([key, value]) => {
+                const backendParam = parameterMap[key];
+                if (backendParam) {
+                    settingsToSave[backendParam] = value;
+                }
             });
 
-            configLines.push('[WHITELIST]');
+            await updateSettings(settingsToSave);
+            console.log('Protection settings saved:', settingsToSave);
 
-            // Ajouter les domaines manuels autorisés
-            manualAllowedDomains.forEach(domain => {
-                configLines.push(domain);
-            });
+            // 2. Sauvegarder les domaines manuels bloqués dans custom.cfg
+            const configLines = [
+                '# CalmWeb Custom Configuration',
+                '# Domaines manuels à bloquer (un par ligne)',
+                '',
+                '[BLOCK]'
+            ];
 
-            configLines.push('[OPTIONS]');
-            configLines.push(`block_ip_direct = ${settings.blockIpDirect ? 1 : 0}`);
-            configLines.push(`block_http_traffic = ${settings.blockHttp ? 1 : 0}`);
-            configLines.push(`block_http_other_ports = ${settings.blockOtherPorts ? 1 : 0}`);
+            // Ajouter les domaines manuels bloqués (ou un commentaire si vide)
+            if (manualBlockedDomains.length > 0) {
+                manualBlockedDomains.forEach(domain => {
+                    configLines.push(domain);
+                });
+            } else {
+                configLines.push('# Aucun domaine manuel bloqué');
+            }
 
+            // Note: La whitelist reste en cache (non sauvegardée)
             const configContent = configLines.join('\n');
             await saveConfig(configContent);
+            console.log('Domains and settings saved successfully');
+
             setSaveStatus('success');
             setTimeout(() => setSaveStatus('idle'), 3000);
         } catch (err) {
             setSaveStatus('error');
-            console.error(err);
+            console.error('Save error:', err);
             setTimeout(() => setSaveStatus('idle'), 3000);
         }
     };

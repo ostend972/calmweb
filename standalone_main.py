@@ -171,17 +171,7 @@ def run_calmweb():
     # Save original proxy settings before starting
     modules['save_original_proxy_settings']()
 
-    try:
-        cfg_path = modules['ensure_custom_cfg_exists'](
-            settings.INSTALL_DIR,
-            settings.manual_blocked_domains,
-            settings.whitelisted_domains
-        )
-        modules['load_custom_cfg_to_globals'](cfg_path)
-    except Exception as e:
-        log(f"Error loading initial config: {e}")
-
-    # Initialize centralized config manager with legacy settings
+    # Initialize centralized config manager with default settings
     try:
         try:
             from calmweb.config.config_manager import config_manager
@@ -189,9 +179,41 @@ def run_calmweb():
             from config.config_manager import config_manager
 
         config_manager.update_from_legacy_settings(settings)
-        log("Config manager initialized with legacy settings")
+        log("Config manager initialized with default settings")
+
+        # Load protection settings from persistent file
+        config_manager.load_from_file()
+
+        # Sync loaded settings back to legacy settings module
+        config_manager.sync_to_legacy_settings(settings)
+        log("Protection settings loaded from file and synchronized")
+
+        # Start auto-updater for external lists
+        try:
+            from calmweb.utils.auto_updater import auto_updater
+            auto_updater.start_auto_updates()
+        except ImportError:
+            from utils.auto_updater import auto_updater
+            auto_updater.start_auto_updates()
+        except Exception as e:
+            log(f"Warning: Could not start auto-updater: {e}")
     except Exception as e:
         log(f"Error initializing config manager: {e}")
+
+    # Load custom config and update settings
+    try:
+        cfg_path = modules['ensure_custom_cfg_exists'](
+            settings.INSTALL_DIR,
+            settings.manual_blocked_domains,
+            settings.whitelisted_domains
+        )
+        modules['load_custom_cfg_to_globals'](cfg_path)
+
+        # Resync config manager after custom config is loaded
+        config_manager.update_from_legacy_settings(settings)
+        log("Config manager resynchronized after custom config loading")
+    except Exception as e:
+        log(f"Error loading initial config: {e}")
 
     # Initialize lifetime statistics
     try:
@@ -298,6 +320,12 @@ def robust_main():
         sys.exit(1)
 
     try:
+        # Détecter si on est l'installateur par le nom de l'exécutable
+        exe_name = os.path.basename(sys.argv[0]).lower()
+        if exe_name in ["calmweb_installer.exe", "calmweb_installer", "calmweb_fr_installer.exe", "calmweb_fr_installer"]:
+            modules['install']()
+            return
+
         if len(sys.argv) > 1:
             if sys.argv[1].lower() == "install":
                 modules['install']()

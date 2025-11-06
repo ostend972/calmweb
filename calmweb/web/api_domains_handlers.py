@@ -228,22 +228,10 @@ def handle_domains_list(handler) -> None:
         all_blocked = []
         all_allowed = []
 
-        # Add manual domains with source marker
-        for domain in manual_blocked:
-            all_blocked.append({
-                "domain": domain,
-                "source": "manual",
-                "removable": True
-            })
+        # Add external domains first
+        external_blocked_set = set(external_blocked)
+        external_allowed_set = set(external_allowed)
 
-        for domain in manual_allowed:
-            all_allowed.append({
-                "domain": domain,
-                "source": "manual",
-                "removable": True
-            })
-
-        # Add external domains with source marker (already limited by api_external_domains)
         for domain in external_blocked:
             all_blocked.append({
                 "domain": domain,
@@ -257,6 +245,23 @@ def handle_domains_list(handler) -> None:
                 "source": "external",
                 "removable": False
             })
+
+        # Add manual domains ONLY if they're not already in external lists
+        for domain in manual_blocked:
+            if domain not in external_blocked_set:
+                all_blocked.append({
+                    "domain": domain,
+                    "source": "manual",
+                    "removable": True
+                })
+
+        for domain in manual_allowed:
+            if domain not in external_allowed_set:
+                all_allowed.append({
+                    "domain": domain,
+                    "source": "manual",
+                    "removable": True
+                })
 
         # Add "more domains" indicator if we have more than displayed
         try:

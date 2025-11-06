@@ -21,6 +21,7 @@ from .api_handlers import handle_config_api, handle_logs_api, handle_data_api
 from .api_settings_handlers import handle_protection_toggle, handle_settings_api
 from .api_domains_handlers import handle_domains_api
 from .api_blocklists_handlers import handle_blocklists_api
+from .api_update_handlers import handle_update_api
 from .templates import get_dashboard_html
 
 # Global variables
@@ -71,7 +72,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif self.path == '/api/protection/toggle':
                 # Toggle protection on/off
                 handle_protection_toggle(self)
-            elif self.path == '/api/settings/update':
+            elif self.path == '/api/settings':
                 # Update settings
                 handle_settings_api(self)
             elif self.path in ['/api/domains/add', '/api/domains/remove', '/api/domains/clear']:
@@ -80,6 +81,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif self.path in ['/api/blocklists/add', '/api/blocklists/remove', '/api/blocklists/reset']:
                 # Blocklist management
                 handle_blocklists_api(self)
+            elif self.path.startswith('/api/update/'):
+                # Auto-update management
+                handle_update_api(self)
             else:
                 self.send_error(404, "Endpoint not found")
 
@@ -130,6 +134,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 # Get blocklists and whitelists
                 handle_blocklists_api(self)
 
+            elif self.path.startswith('/api/update/'):
+                # Auto-update status
+                handle_update_api(self)
+
             # React app routes
             elif self.path == '/' or self.path == '/index.html' or self.path.startswith('/?'):
                 # Serve React dashboard or fallback to simple dashboard (including with query parameters)
@@ -166,22 +174,20 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 pass
 
     def serve_dashboard(self) -> None:
-        """Serve the main dashboard (React if available, fallback to HTML)."""
+        """Serve the React dashboard only."""
         try:
-            # Try React first
+            log(f"Looking for React dashboard at: {DASHBOARD_DIST_DIR}")
+            # Force React dashboard only
             if os.path.exists(DASHBOARD_DIST_DIR) and os.path.exists(os.path.join(DASHBOARD_DIST_DIR, "index.html")):
+                log("✅ React dashboard found, serving React app")
                 self.serve_react_file("index.html")
             else:
-                # Fallback to simple HTML dashboard
-                log("React dashboard not found, falling back to simple dashboard")
-                self.serve_simple_dashboard()
+                # No fallback - show error
+                log(f"❌ React dashboard not found at {DASHBOARD_DIST_DIR}")
+                self.send_error(503, f"React dashboard not available. Looking at: {DASHBOARD_DIST_DIR}")
         except Exception as e:
-            log(f"Error serving dashboard, falling back to simple: {e}")
-            try:
-                self.serve_simple_dashboard()
-            except Exception as e2:
-                log(f"Error serving fallback dashboard: {e2}")
-                self.send_error(500, "Dashboard generation error")
+            log(f"Error serving React dashboard: {e}")
+            self.send_error(500, f"Dashboard error: {e}")
 
     def serve_react_file(self, filepath: str) -> None:
         """Serve a React build file from the dist directory."""
